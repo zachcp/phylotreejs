@@ -1,0 +1,14 @@
+Package: phylotreejs
+Type: Package
+Title: Interactive Phylogenetic Trees for Phlyoseq
+Version: 0.1
+Date: 2015-07-10
+Author: zach charlop-powers
+Maintainer: zach charlop-powers
+Description: Lets you Draw Interactive Phylogenetic Trees
+License: What license is it under?
+LazyData: TRUE
+Imports:
+    phyloseq,
+    leaflet
+
