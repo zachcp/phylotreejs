@@ -41,7 +41,8 @@ interactivetree <- function(physeq,
                             fillOpacity = 0.2,
                             palette = "Blues",
                             numerictype = "numeric",
-                            method="tree"){
+                            method="tree",
+                            legend=TRUE){
 
     #get tree layout data
     treeSegs <- phyloseq::tree_layout(physeq, ladderize = ladderize)
@@ -148,21 +149,21 @@ interactivetree <- function(physeq,
     }else{
         #checkfactor
         if(is.factor(pointdata[[color]])){
-            colors <- leaflet::colorFactor(palette = palette,
+            colorfn <- leaflet::colorFactor(palette = palette,
                                            domain = pointdata[[color]])
-            pointdata$color <- colors(pointdata[[color]])
-        }else if(is.numeric(pointdata[[color]]) | numerictype=="numeric"){
-            colors <- leaflet::colorNumeric(palette = palette,
+            pointdata$color <- colorfn(pointdata[[color]])
+        }else if(is.numeric(pointdata[[color]]) & numerictype=="numeric"){
+            colorfn <- leaflet::colorNumeric(palette = palette,
                                            domain = pointdata[[color]])
-            pointdata$color <- colors(pointdata[[color]])
-        }else if(is.numeric(pointdata[[color]]) | numerictype=="bin"){
-            colors <- leaflet::colorBin(palette = palette,
+            pointdata$color <- colorfn(pointdata[[color]])
+        }else if(is.numeric(pointdata[[color]]) & numerictype=="bin"){
+            colorfn <- leaflet::colorBin(palette = palette,
                                         domain = pointdata[[color]])
-            pointdata$color <- colors(pointdata[[color]])
-        }else if(is.numeric(pointdata[[color]]) | numerictype=="quantile"){
-            colors <- leaflet::colorQuantile(palette = palette,
+            pointdata$color <- colorfn(pointdata[[color]])
+        }else if(is.numeric(pointdata[[color]]) & numerictype=="quantile"){
+            colorfn <- leaflet::colorQuantile(palette = palette,
                                              domain = pointdata[[color]])
-            pointdata$color <- colors(pointdata[[color]])
+            pointdata$color <- colorfn(pointdata[[color]])
         }
     }
 
@@ -191,7 +192,17 @@ interactivetree <- function(physeq,
                           fillOpacity = fillOpacity
                           )
 
-    return(list(m=m,pointdata=pointdata))
+    ################################################################
+    ################################################################
+    #add legend
+    if (legend & exists("colorfn")){
+        m <- m %>% addLegend(position="bottomright",
+                             pal = colorfn,
+                             values = pointdata[[color]],
+                             opacity = 1)
+    }
+
+    return(m)
 }
 
 
@@ -204,4 +215,4 @@ data("epoxamicin_KS")
 #interactivetree(esophagus, method="sampledodge", size="Abundance")
 #interactivetree(esophagus,method="sampledodge",size="Abundance")
 #interactivetree(epoxamicin_KS,method="sampledodge",size="Abundance", color="FAO")
-interactivetree(epoxamicin_KS,method="tree", color="otu35")
+x <- interactivetree(epoxamicin_KS, color="otu35")
