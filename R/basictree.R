@@ -4,6 +4,7 @@ library(phyloseq)
 library(phylogeo)
 library(leaflet)
 
+
 #' interactivetree
 #'
 #' interactive phlogenetic tree that returns a phylogenetic tree as an htmlwidget
@@ -14,38 +15,46 @@ library(leaflet)
 #'
 #' @param  physeq a phyloseg object
 #' @param ladderize boolean. ladderize or not
-#' @param xscale scale to correct APE's x/y discrepancy
-#' @param yscale scale to correct APE's x/y discrepancy
+#' @param aspectratio control the dimensions of the tree
 #' @param linecolor color lines
 #' @param lineweight
 #' @param lineopacity
+#' @param size size of circles
+#' @param abundancescale a sclae for circle size
 #' @param method
 interactivetree <- function(physeq,
                             ladderize=TRUE,
-                            xscale=NULL,
-                            yscale=NULL,
+                            aspectratio=1,
                             #lineoptions
                             linecolor= "black",
                             lineweight = 2,
                             lineopacity = 1,
+                            #circle options
+                            size = 10,
+                            abundancescale=1,
+                            color = "blue",
+                            stroke = TRUE,
+                            fill = TRUE,
+                            circlestrokeweight = 3,
+                            circlestrokeopacity = 0.5,
+                            fillColor = color,
+                            fillOpacity = 0.2,
+                            palette = "Blues",
+                            numerictype = "numeric",
                             method="tree"){
 
     #get tree layout data
     treeSegs <- phyloseq::tree_layout(physeq, ladderize = ladderize)
 
-    # set x and y scale values. Scale xmax and ymax to 1
-    if (is.null(xscale)) {
-        x_max <- max(treeSegs$edgeDT$xright)
-        x_min <- min(treeSegs$edgeDT$xleft)
-        y_max <- max(treeSegs$edgeDT$y)
-        y_min <- min(treeSegs$edgeDT$y)
-        xscale = 1/x_max
-        yscale = 1/y_max
-
-    }
+    # use the x and y max/min values to find an x and yscle factor to length 1
+    # and modify these scale sby the aspect ratio
+    x_max <- max(treeSegs$edgeDT$xright)
+    y_max <- max(treeSegs$edgeDT$y)
+    xscale = 1/x_max
+    yscale = 1/y_max
+    xscale = xscale*aspectratio
 
     #' helper function to create a leaflet-compatable two-column matrix of lines
-    #' from Ape's tree layout
     make_edgematrix <-function(){
         #get the edges
         edges <- treeSegs$edgeDT
@@ -61,7 +70,6 @@ interactivetree <- function(physeq,
             as.matrix()
     }
     #' helper function to create a leaflet-compatable two-column matrix of lines
-    #' from Ape's tree layout
     make_vertexmatrix <- function(){
         #and the vertices
         verts <- treeSegs$vertDT
@@ -77,37 +85,123 @@ interactivetree <- function(physeq,
             as.matrix()
     }
 
-    #get edges, vertices, and points
+    ################################################################
+    ################################################################
+    # get tree edges and vertices and create the basemap
     edges <- make_edgematrix()
     vertices <- make_vertexmatrix()
+    m <- leaflet() %>%
+        addPolylines(data=edges,    color=linecolor, weight=lineweight, opacity=lineopacity) %>%
+        addPolylines(data=vertices, color=linecolor, weight=lineweight, opacity=lineopacity)
+
+    # add the tree tips. tip metadata will come from either the tax_table (method=="tree")
+    # or from the taxtable + sampel_data (method=="sampledodege"). in the latter case,
+    # there will be multiple points correspondin to each OTU-sample combination
     points <- treeSegs$edgeDT %>%
         data.frame() %>%
         filter(!is.na(OTU)) %>%
         mutate(lng = xright*xscale, lat = y*yscale) %>%
         select(OTU,lng,lat)
 
-
-    #set the basemap and add the tree
-    m <- leaflet() %>%
-        addPolylines(data=edges,    color=linecolor, weight=lineweight, opacity=lineopacity) %>%
-        addPolylines(data=vertices, color=linecolor, weight=lineweight, opacity=lineopacity)
-
-    #add the points at the end of the tree
     if(method=="tree"){
+        if (size=="Abundance") stop("Abundance plotting can only be done with the sampledodge method")
+
+        # merge point location with tax_table information and draw the tree
         taxdata <- tax_table(physeq) %>%
             data.frame() %>%
             mutate(OTU = rownames(.))
-        #print(taxdata)
-        pointdata <- merge(points, taxdata, by="OTU")
-        #add points to the map
-        m <- m %>% addCircles(data=pointdata, lng=~lng,lat=~lat, popup=~OTU)
+        pointdata <- merge(points, taxdata, by="OTU") %>%
+            mutate(treelat = lat, treelng=lng) %>%
+            select(-lat,-lng)
+
+    } else if(method=="sampledodge"){
+        warning("This method is not yet implemented")
+        points <- points %>%
+            mutate(treelat = lat, treelng=lng) %>%
+            select(-lat,-lng)
+        melted <- phyloseq::psmelt(physeq)
+        pointdata <- merge(points,melted, by="OTU")
+        pointdata <- pointdata %>% group_by(OTU) %>%
+            mutate(rownum = row_number(treelng)) %>%
+            mutate(treelng = treelng+(rownum*0.03))
+
+    } else {
+        stop("'sampledoge' and 'tree' are the only acceptable method options")
+    }
+
+    ################################################################
+    ################################################################
+    #check size input
+    if (is.numeric(size)){
+        pointdata$pointsize <- size*100
+    } else if (size == "Abundance"){
+        pointdata$pointsize <- pointdata$Abundance * abundancescale
+    } else {
+        stop("Invalid size option: numeric value or 'Abundance")
+    }
+
+    ################################################################
+    ################################################################
+    # check color varaialbe and add a color column to the points df
+    if(!color %in% names(pointdata)){
+        pointdata$color <- color
+    }else{
+        #checkfactor
+        if(is.factor(pointdata[[color]])){
+            colors <- leaflet::colorFactor(palette = palette,
+                                           domain = pointdata[[color]])
+            pointdata$color <- colors(pointdata[[color]])
+        }else if(is.numeric(pointdata[[color]]) | numerictype=="numeric"){
+            colors <- leaflet::colorNumeric(palette = palette,
+                                           domain = pointdata[[color]])
+            pointdata$color <- colors(pointdata[[color]])
+        }else if(is.numeric(pointdata[[color]]) | numerictype=="bin"){
+            colors <- leaflet::colorBin(palette = palette,
+                                        domain = pointdata[[color]])
+            pointdata$color <- colors(pointdata[[color]])
+        }else if(is.numeric(pointdata[[color]]) | numerictype=="quantile"){
+            colors <- leaflet::colorQuantile(palette = palette,
+                                             domain = pointdata[[color]])
+            pointdata$color <- colors(pointdata[[color]])
+        }
+    }
+
+    #set fillcolor
+    if (fillColor == color){
+        pointdata$fillcolor <- pointdata$color
+    } else {
+        pointdata$fillcolor <- fillColor
     }
 
 
-    return(m)
+    ################################################################
+    ################################################################
+    #add points to the map
+    m <- m %>% addCircles(data=pointdata,
+                          lng=~treelng,
+                          lat=~treelat,
+                          popup=~OTU,
+                          radius=~pointsize,
+                          color = ~color,
+                          stroke = stroke,
+                          fill = fill,
+                          weight = circlestrokeweight,
+                          opacity = circlestrokeopacity,
+                          fillColor = ~fillcolor,
+                          fillOpacity = fillOpacity
+                          )
+
+    return(list(m=m,pointdata=pointdata))
 }
 
+
 data("epoxamicin_KS")
-interactivetree(epoxamicin_KS)
-#p <- plot_tree(esophagus)
-#p$data
+#interactivetree(epoxamicin_KS)
+#interactivetree(epoxamicin_KS, method="sampledodge")
+#x = interactivetree(epoxamicin_KS, method="sampledodge", size=3)
+#x$m
+#interactivetree(esophagus, method="sampledodge", size=3)
+#interactivetree(esophagus, method="sampledodge", size="Abundance")
+#interactivetree(esophagus,method="sampledodge",size="Abundance")
+#interactivetree(epoxamicin_KS,method="sampledodge",size="Abundance", color="FAO")
+interactivetree(epoxamicin_KS,method="tree", color="otu35")
